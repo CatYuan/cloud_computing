@@ -139,13 +139,9 @@ int main(int argc, char *argv[]) {
   int reading_message = 0;
   FILE * output_fp = fopen("output", "w");
   while(getline(&lineptr, &n, sock_file) != -1) {
-    if (reading_message > 0) {
+    if (reading_message != 0) {
       // at message, save to output
-      if (reading_message == 2) {
-        fprintf(output_fp, "%s", lineptr);
-      } else { // at extra line
-        reading_message++;
-      }
+      fprintf(output_fp, "%s", lineptr);
     } else if (strcmp(strtok(lineptr, "/"), "HTTP") == 0) { // check server returns a file
       strtok(NULL, " ");
       char *status = strtok(NULL, " ");
@@ -157,7 +153,7 @@ int main(int argc, char *argv[]) {
         break;
       }
     } else if (strcmp(strtok(lineptr, ":"), "Content-Length") == 0) { // check if at message
-      reading_message++;
+      reading_message = 1;
     }
     free(lineptr);
     lineptr = NULL; n = 0;
