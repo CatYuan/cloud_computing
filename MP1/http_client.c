@@ -138,11 +138,13 @@ int main(int argc, char *argv[]) {
   char *lineptr = NULL; size_t n = 0;
   int reading_message = 0;
   int total_bytes = 0;
-  FILE * output_fp = fopen("output", "w");
+  FILE *output_fp = fopen("output", "w");
+  // FILE *response_fp = fopen("response", "w");
   while(getline(&lineptr, &n, sock_file) != -1) {
+    // fprintf(response_fp, "%s", lineptr);
     if (reading_message != 0) {
       // at message, save to output
-      if (strcmp(lineptr, "\r\n\r\n") == 0) {
+      if (strcmp(lineptr, "\r\n") == 0) {
         free(lineptr);
         lineptr = NULL; n = 0;
         continue;
