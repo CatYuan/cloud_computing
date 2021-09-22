@@ -1,6 +1,5 @@
 /**
  * http_client.c - implements a simple HTTP client
- * 
  */
 
 #define _GNU_SOURCE
@@ -138,7 +137,7 @@ int main(int argc, char *argv[]) {
   setvbuf(sock_file, NULL, _IONBF, 0);
   char *lineptr = NULL; size_t n = 0;
   int reading_message = 0;
-  FILE * output_fp = NULL;
+  FILE * output_fp = fopen("output", "w");
   while(getline(&lineptr, &n, sock_file) != -1) {
     if (reading_message > 0) {
       // at message, save to output
@@ -157,18 +156,6 @@ int main(int argc, char *argv[]) {
         output_fp = NULL;
         break;
       }
-    } else if ((strcmp(strtok(lineptr, ":"), "Content-type") == 0) ||  (strcmp(strtok(lineptr, ":"), "Content-Type") == 0)) { // check content type 
-      char *type = strtok(NULL, "/");
-      char *file_ext = "plain";
-      if (type == NULL) {
-        file_ext = strtok(NULL, "");
-      }
-      if (file_ext == NULL) { file_ext = "html"; }
-      char *file_name = (char*) calloc(strlen("output.") + strlen(file_ext) + 1, 1);
-      strcpy(file_name, "output.");
-      strcat(file_name, file_ext);
-      output_fp = fopen(file_name, "w");
-      free(file_name);
     } else if (strcmp(strtok(lineptr, ":"), "Content-Length") == 0) { // check if at message
       reading_message++;
     }
