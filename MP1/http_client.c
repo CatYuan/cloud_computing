@@ -1,5 +1,6 @@
 /**
  * http_client.c - implements a simple HTTP client
+ * 
  */
 
 #define _GNU_SOURCE
