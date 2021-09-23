@@ -159,12 +159,17 @@ int main(int argc, char *argv[]) {
       }
       char *message = chunk;
       if (reading_message == 0) {
-        reading_message = 1;
-        message = strstr(chunk, "\r\n\r\n") + 4;
+        message = strstr(chunk, "\r\n\r\n");
+        if (message != NULL) {
+          message = message + 4;
+          reading_message = 1;
+        }
       }
-      int header_length = message - chunk;
-      bytes_read = size_recv - header_length;
-      fwrite(message, bytes_read, 1, output_fp);
+      if (reading_message = 1) {
+        int header_length = message - chunk;
+        bytes_read = size_recv - header_length;
+        fwrite(message, bytes_read, 1, output_fp);
+      }
     }
   }
   // teardown
