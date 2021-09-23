@@ -134,18 +134,15 @@ int main(int argc, char *argv[]) {
   write(sockfd, buffer, strlen(buffer));
   free(buffer);
   // read response from server
-  FILE *response = fopen("response", "w");
-  int response_fd = fileno(response);
   FILE *output_fp = fopen("output", "w");
   int size_recv = 0, total_bytes = 0, reading_message = 0, bytes_read = 0;
   char *length = NULL;
   char chunk[CHUNK_SIZE];
   while (1) {
     memset(chunk, 0, CHUNK_SIZE);
-    if ((size_recv = recv(sockfd, chunk, CHUNK_SIZE, MSG_DONTWAIT)) < 0) {
+    if ((size_recv = recv(sockfd, chunk, CHUNK_SIZE, 0)) < 0) {
       break;
     } else {
-      write(response_fd, chunk, size_recv);
       if (bytes_read == total_bytes && total_bytes != 0) { // reached EOF
         break;
       }
@@ -174,7 +171,6 @@ int main(int argc, char *argv[]) {
   if (output_fp != NULL) {
     fclose(output_fp);
   }
-  fclose(response);
   close(sockfd);
   freeaddrinfo(servinfo);
   free_info(info);
