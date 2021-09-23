@@ -143,10 +143,12 @@ int main(int argc, char *argv[]) {
     if ((size_recv = recv(sockfd, chunk, CHUNK_SIZE, 0)) < 0) {
       break;
     } else {
-      if (bytes_read == total_bytes && total_bytes != 0) { // reached EOF
+      if (bytes_read >= total_bytes && total_bytes != 0) { // reached EOF
+        fclose(output_fp);
+        output_fp = NULL;
         break;
       }
-      if (strstr(chunk, "404 File not found") != NULL) {
+      if (total_bytes == 0 && strstr(chunk, "404 File not found") != NULL) {
         // check server returns a file
         fprintf(output_fp, "FILENOTFOUND");
         fclose(output_fp);
@@ -156,6 +158,7 @@ int main(int argc, char *argv[]) {
       if (total_bytes == 0 && (length = strstr(chunk, "Content-Length: ")) != NULL) {
           // check content length
           total_bytes = atoi(length + strlen("Content-Length: "));
+          // printf("total bytes: %d\n", total_bytes);
       }
       char *message = chunk;
       if (reading_message == 0) {
@@ -167,8 +170,12 @@ int main(int argc, char *argv[]) {
       }
       if (reading_message = 1) {
         int header_length = message - chunk;
-        bytes_read = size_recv - header_length;
-        fwrite(message, bytes_read, 1, output_fp);
+        int msg_recv = size_recv - header_length;
+        if (msg_recv + bytes_read > total_bytes){
+          msg_recv = total_bytes - bytes_read;
+        }
+        bytes_read += msg_recv;
+        fwrite(message, msg_recv, 1, output_fp);
       }
     }
   }
