@@ -3,6 +3,7 @@
  */
 
 #define _GNU_SOURCE
+#define CHUNK_SIZE 1024
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -133,46 +134,47 @@ int main(int argc, char *argv[]) {
   write(sockfd, buffer, strlen(buffer));
   free(buffer);
   // read response from server
-  FILE *sock_file = fdopen(sockfd, "r+");
-  setvbuf(sock_file, NULL, _IONBF, 0);
-  char *lineptr = NULL; size_t n = 0;
-  int reading_message = 0;
-  int total_bytes = 0;
+  FILE *response = fopen("response", "w");
+  int response_fd = fileno(response);
   FILE *output_fp = fopen("output", "w");
-  FILE *response_fp = fopen("response", "w");
-  while(getline(&lineptr, &n, sock_file) != -1) {
-    fprintf(response_fp, "%s", lineptr);
-    if (reading_message != 0) {
-      // at message, save to output
-      if (total_bytes == 0) {
+  int size_recv = 0, total_bytes = 0, reading_message = 0, bytes_read = 0;
+  char *length = NULL;
+  char chunk[CHUNK_SIZE];
+  while (1) {
+    memset(chunk, 0, CHUNK_SIZE);
+    if ((size_recv = recv(sockfd, chunk, CHUNK_SIZE, MSG_DONTWAIT)) < 0) {
+      break;
+    } else {
+      write(response_fd, chunk, size_recv);
+      if (bytes_read == total_bytes && total_bytes != 0) { // reached EOF
         break;
       }
-      total_bytes -= n;
-      fprintf(output_fp, "%s", lineptr);
-    } else if (strcmp(strtok(lineptr, "/"), "HTTP") == 0) { // check server returns a file
-      strtok(NULL, " ");
-      char *status = strtok(NULL, " ");
-      if (strcmp(status, "404") == 0) {
-        output_fp = fopen("output", "w");
+      if (strstr(chunk, "404 File not found") != NULL) {
+        // check server returns a file
         fprintf(output_fp, "FILENOTFOUND");
         fclose(output_fp);
         output_fp = NULL;
         break;
       }
-    } else if (strcmp(strtok(lineptr, ":"), "Content-Length") == 0) { // check if at message
-      total_bytes = atoi(strtok(NULL, ""));
-    } else if (strcmp(lineptr, "\r\n") == 0) {
-      reading_message = 1;
+      if (total_bytes == 0 && (length = strstr(chunk, "Content-Length: ")) != NULL) {
+          // check content length
+          total_bytes = atoi(length + strlen("Content-Length: "));
+      }
+      char *message = chunk;
+      if (reading_message == 0) {
+        reading_message = 1;
+        message = strstr(chunk, "\r\n\r\n") + 4;
+      }
+      int header_length = message - chunk;
+      bytes_read = size_recv - header_length;
+      fwrite(message, bytes_read, 1, output_fp);
     }
-    free(lineptr);
-    lineptr = NULL; n = 0;
   }
-  free(lineptr);
   // teardown
   if (output_fp != NULL) {
     fclose(output_fp);
   }
-  fclose(sock_file);
+  fclose(response);
   close(sockfd);
   freeaddrinfo(servinfo);
   free_info(info);
