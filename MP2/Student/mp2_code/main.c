@@ -1,9 +1,16 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <pthread.h>
+#include <stdbool.h>
 
 #include "monitor_neighbors.h"
 
+// struct for Link State Announcement
+typedef struct LSA{
+	int cost;
+	unsigned int seq_num;
+	int next_hop;
+} LSA;
 
 void listenForNeighbors();
 void* announceToNeighbors(void* unusedParam);
@@ -18,6 +25,14 @@ struct timeval globalLastHeartbeat[256];
 int globalSocketUDP;
 //pre-filled for sending to 10.1.1.0 - 255, port 7777
 struct sockaddr_in globalNodeAddrs[256];
+
+// forwarding table stored by each router
+struct LSA local_lsa[256];
+
+// list of this node's neighbors
+bool neighbors[256];
+
+char *output_filename;
 
  
 int main(int argc, char** argv)
@@ -47,7 +62,25 @@ int main(int argc, char** argv)
 	
 	
 	//TODO: read and parse initial costs file. default to cost 1 if no entry for a node. file may be empty.
-	
+	output_filename = argv[3];
+	// initialize local_lsa and neighbors
+	for (int i = 0; i < 256; i++) {
+		local_lsa[i].cost = 1;
+		local_lsa[i].next_hop = -1;
+		local_lsa[i].seq_num = 0;
+		neighbors[i] = false;
+	}
+	// assign costs based on inputted cost_file
+	char *lineptr = NULL; ssize_t n = 0;
+	FILE *costs_file = fopen(argv[2], "r");
+	while (getline(&lineptr, &n, costs_file) != -1) {
+		int node, cost;
+		sscanf(lineptr, "%d %d", &node, &cost);
+		local_lsa[node].cost = cost;
+		free(lineptr); n = 0;
+	}
+	free(lineptr); n = 0;
+	fclose(costs_file);
 	
 	//socket() and bind() our socket. We will do all sendto()ing and recvfrom()ing on this one.
 	if((globalSocketUDP=socket(AF_INET, SOCK_DGRAM, 0)) < 0)
