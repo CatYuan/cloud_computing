@@ -5,19 +5,12 @@
 
 #include "monitor_neighbors.h"
 
-// struct for Link State Announcement
-typedef struct LSA{
-	int cost;
-	unsigned int seq_num;
-	int next_hop;
-} LSA;
-
 void listenForNeighbors();
 void* announceToNeighbors(void* unusedParam);
 
 
 int globalMyID = 0;
-//last time you heard from each node. TODO: you will want to monitor this
+//last time you heard from each node. you will want to monitor this
 //in order to realize when a neighbor has gotten cut off from you.
 struct timeval globalLastHeartbeat[256];
 
@@ -28,9 +21,6 @@ struct sockaddr_in globalNodeAddrs[256];
 
 // forwarding table stored by each router
 struct LSA local_lsa[256];
-
-// list of this node's neighbors
-bool neighbors[256];
 
 char *output_filename;
 
@@ -48,10 +38,13 @@ int main(int argc, char** argv)
 	//and set up our sockaddr_in's for sending to the other nodes.
 	globalMyID = atoi(argv[1]);
 	int i;
-	for(i=0;i<256;i++)
-	{
-		gettimeofday(&globalLastHeartbeat[i], 0);
-		
+	for(i=0;i<256;i++) {
+		// initialize globalLastHeartbeat to 0
+		// gettimeofday(&globalLastHeartbeat[i], 0);
+		struct timeval zero_tv;
+		zero_tv.tv_sec = 0; zero_tv.tv_usec = 0;
+		globalLastHeartbeat[i] = zero_tv;
+
 		char tempaddr[100];
 		sprintf(tempaddr, "10.1.1.%d", i);
 		memset(&globalNodeAddrs[i], 0, sizeof(globalNodeAddrs[i]));
@@ -61,14 +54,14 @@ int main(int argc, char** argv)
 	}
 	
 	
-	//TODO: read and parse initial costs file. default to cost 1 if no entry for a node. file may be empty.
+	// read and parse initial costs file. default to cost 1 if no entry for a node. file may be empty.
 	output_filename = argv[3];
-	// initialize local_lsa and neighbors
+	// initialize local_lsa
 	for (int i = 0; i < 256; i++) {
-		local_lsa[i].cost = 1;
+		local_lsa[i].cost = -1;
+		local_lsa[i].initial_cost = 1;
 		local_lsa[i].next_hop = -1;
 		local_lsa[i].seq_num = 0;
-		neighbors[i] = false;
 	}
 	// assign costs based on inputted cost_file
 	char *lineptr = NULL; ssize_t n = 0;
@@ -106,7 +99,12 @@ int main(int argc, char** argv)
 	//start threads... feel free to add your own, and to remove the provided ones.
 	pthread_t announcerThread;
 	pthread_create(&announcerThread, 0, announceToNeighbors, (void*)0);
+
+	// monitor neighbors to see if connection is dropped
+	pthread_t monitorThread;
+	pthread_create(&monitorThread, 0, monitorNeighbors, (void*)0);
 	
+	// broadcast local_lsa to all neighbors - increment seq num when this is done
 	
 	
 	
