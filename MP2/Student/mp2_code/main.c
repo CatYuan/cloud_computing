@@ -24,7 +24,13 @@ struct LSA local_lsa[256];
 
 char *output_filename;
 
- 
+int init_cost_nodes[256];
+
+// mutexes for threads
+pthread_mutex_t lastHeartbeat_mutex = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t local_lsa_mutex = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t init_costs_mutex = PTHREAD_MUTEX_INITIALIZER;
+
 int main(int argc, char** argv)
 {
 	if(argc != 4)
@@ -38,6 +44,7 @@ int main(int argc, char** argv)
 	//and set up our sockaddr_in's for sending to the other nodes.
 	globalMyID = atoi(argv[1]);
 	int i;
+	pthread_mutex_lock(&lastHeartbeat_mutex);
 	for(i=0;i<256;i++) {
 		// initialize globalLastHeartbeat to 0
 		// gettimeofday(&globalLastHeartbeat[i], 0);
@@ -52,28 +59,38 @@ int main(int argc, char** argv)
 		globalNodeAddrs[i].sin_port = htons(7777);
 		inet_pton(AF_INET, tempaddr, &globalNodeAddrs[i].sin_addr);
 	}
-	
+	pthread_mutex_unlock(&lastHeartbeat_mutex);
 	
 	// read and parse initial costs file. default to cost 1 if no entry for a node. file may be empty.
 	output_filename = argv[3];
 	// initialize local_lsa
+	pthread_mutex_lock(&local_lsa_mutex);
+	pthread_mutex_lock(&init_costs_mutex);
 	for (int i = 0; i < 256; i++) {
+		local_lsa[i].msg_type = "hello";
+		local_lsa[i].id = i;
 		local_lsa[i].cost = -1;
 		local_lsa[i].initial_cost = 1;
 		local_lsa[i].next_hop = -1;
 		local_lsa[i].seq_num = 0;
+		init_cost_nodes[i] = -1;
 	}
 	// assign costs based on inputted cost_file
 	char *lineptr = NULL; ssize_t n = 0;
 	FILE *costs_file = fopen(argv[2], "r");
+	int index = 0;
 	while (getline(&lineptr, &n, costs_file) != -1) {
 		int node, cost;
 		sscanf(lineptr, "%d %d", &node, &cost);
-		local_lsa[node].cost = cost;
+		local_lsa[node].initial_cost = cost;
+		init_cost_nodes[index] = node;
+		index++;
 		free(lineptr); n = 0;
 	}
 	free(lineptr); n = 0;
 	fclose(costs_file);
+	pthread_mutex_unlock(&init_costs_mutex);
+	pthread_mutex_unlock(&local_lsa_mutex);
 	
 	//socket() and bind() our socket. We will do all sendto()ing and recvfrom()ing on this one.
 	if((globalSocketUDP=socket(AF_INET, SOCK_DGRAM, 0)) < 0)
@@ -104,9 +121,9 @@ int main(int argc, char** argv)
 	pthread_t monitorThread;
 	pthread_create(&monitorThread, 0, monitorNeighbors, (void*)0);
 	
-	// broadcast local_lsa to all neighbors - increment seq num when this is done
-	
-	
+	// broadcast local_lsa to neighbors. broadcasts intial costs
+	pthread_t broadcastThread;
+	pthread_create(&broadcastThread, 0, broadcastInitCosts, (void*)0);
 	
 	//good luck, have fun!
 	listenForNeighbors();

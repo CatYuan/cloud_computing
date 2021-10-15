@@ -13,6 +13,8 @@
 
 // struct for Link State Announcement
 typedef struct LSA{
+	char *msg_type;
+	int id;
 	int cost;
 	unsigned int initial_cost;
 	unsigned int seq_num;
@@ -34,15 +36,62 @@ extern struct LSA local_lsa[256];
 
 extern char *output_filename;
 
-// id of router that the connection was dropped from. -1 if no connections were dropped
-int connection_dropped = -1;
+extern int init_cost_nodes[256];
 
-// mutexes for globalLastHeartbeat and connection_dropped(?)
-pthread_mutex_t lastHeartbeat_mutex = PTHREAD_MUTEX_INITIALIZER;
+// mutexes for threads
+extern pthread_mutex_t lastHeartbeat_mutex = PTHREAD_MUTEX_INITIALIZER;
+extern pthread_mutex_t local_lsa_mutex = PTHREAD_MUTEX_INITIALIZER;
+extern pthread_mutex_t init_costs_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 // list of added functions
 void* monitorNeighbors(void* unusedParam);
+void broadcastInitCosts(void* unusedParam);
 bool isNeighbor(int router_id);
+
+void* monitorNeighbors(void* unusedParam) {
+	struct timespec sleepFor;
+	sleepFor.tv_sec = 0;
+	sleepFor.tv_nsec = 1000 * 1000 * 1000; //1000 ms
+	time_t timeout = 1; // 1 sec
+	while(1) {
+		pthread_mutex_lock(&lastHeartbeat_mutex);
+		for (int i = 0; i < 256; i++) {
+			if (i == globalMyID) {
+				continue;
+			}
+			// check if connection is dropped
+			struct timeval currTime;
+			gettimeofday(&currTime, 0);
+			if ((globalLastHeartbeat[i].tv_sec != 0) &&
+				(currTime.tv_sec - globalLastHeartbeat[i].tv_sec > timeout)) {
+				// TODO: logic for when connection is dropped
+				// set cost to -1 to indicate no connection
+			}
+		}
+		pthread_mutex_unlock(&lastHeartbeat_mutex);			
+		nanosleep(&sleepFor, 0);
+	}
+}
+
+// TODO: may have memory leaks from sending pointer to local_lsa[lsa_index]
+void broadcastInitCosts(void* unusedParam) {
+	pthread_mutex_lock(&local_lsa_mutex);
+	pthread_mutex_lock(&init_costs_mutex);
+	for (int dest_node = 0; dest_node < 256; dest_node++) {
+		if (dest_node == globalMyID) { continue; }
+		if (isNeighbor(dest_node)) {
+			for (int j = 0; init_cost_nodes[j] != -1 || j < 256; j++) {
+				if (!isNeighbor(init_cost_nodes[j])) { continue; }
+				int lsa_index = init_cost_nodes[j];
+				LSA* lsa = &local_lsa[lsa_index];
+				sendto(globalSocketUDP, lsa, sizeof(LSA), 0,
+				  (struct sockaddr*)&globalNodeAddrs[dest_node], sizeof(globalNodeAddrs[dest_node]));
+			}
+		}
+	}
+	pthread_mutex_unlock(&init_costs_mutex);
+	pthread_mutex_unlock(&local_lsa_mutex);
+}
 
 bool isNeighbor(int router_id) {
 	time_t timeout = 1;
@@ -72,29 +121,6 @@ void* announceToNeighbors(void* unusedParam) {
 	sleepFor.tv_nsec = 300 * 1000 * 1000; //300 ms
 	while(1) {
 		hackyBroadcast("HEREIAM", 7);
-		nanosleep(&sleepFor, 0);
-	}
-}
-
-void* monitorNeighbors(void* unusedParam) {
-	struct timespec sleepFor;
-	sleepFor.tv_sec = 0;
-	sleepFor.tv_nsec = 1000 * 1000 * 1000; //1000 ms
-	while(1) {
-		time_t timeout = 1; // 1 sec
-		pthread_mutex_lock(&lastHeartbeat_mutex);
-		for (int i = 0; i < 256; i++) {
-			if (i == globalMyID) {
-				continue;
-			}
-			struct timeval currTime;
-			gettimeofday(&currTime, 0);
-			if ((globalLastHeartbeat[i].tv_sec != 0) &&
-				(currTime.tv_sec - globalLastHeartbeat[i].tv_sec > timeout)) {
-				// TODO: logic for when connection is dropped
-			}
-		}
-		pthread_mutex_unlock(&lastHeartbeat_mutex);			
 		nanosleep(&sleepFor, 0);
 	}
 }
