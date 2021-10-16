@@ -5,9 +5,19 @@
 
 #include "monitor_neighbors.h"
 
-void listenForNeighbors();
-void* announceToNeighbors(void* unusedParam);
-
+/**
+ * NOTE: Remember to convert to htonl when sending and ntohl when reading
+ * TODO: Refactor using new structs
+ * 		receive "hello" messages in listenForNeighbors() - send updated lsa to neighbors - buf must be freed
+ * 		implement shortest path - dijkstra
+ * 		implement send message - should run dijkstra - print log msgs
+ * 			1. next_hop == -1
+ * 			2. dest != next_hop
+ * 			3. dest == next_hop
+ * 			4. dest == globalMyId
+ * 		implement what happens when connection dropped
+ * 		implement cost message
+ */
 
 int globalMyID = 0;
 //last time you heard from each node. you will want to monitor this
@@ -67,7 +77,7 @@ int main(int argc, char** argv)
 	pthread_mutex_lock(&local_lsa_mutex);
 	pthread_mutex_lock(&init_costs_mutex);
 	for (int i = 0; i < 256; i++) {
-		local_lsa[i].msg_type = "hello";
+		memcpy(local_lsa[i].msg_type, "hello\0", 6);
 		local_lsa[i].id = i;
 		local_lsa[i].cost = -1;
 		local_lsa[i].initial_cost = 1;
@@ -126,8 +136,5 @@ int main(int argc, char** argv)
 	pthread_create(&broadcastThread, 0, broadcastInitCosts, (void*)0);
 	
 	//good luck, have fun!
-	listenForNeighbors();
-	
-	
-	
+	listenForNeighbors();	
 }
