@@ -7,10 +7,9 @@
 
 /**
  * NOTE: Remember to convert to htonl when sending and ntohl when reading
- * TODO: Refactor using new structs
- * 		receive "hello" messages in listenForNeighbors() - send updated lsa to neighbors - buf must be freed
- * 		implement shortest path - dijkstra
+ * TODO: 
  * 		implement send message - should run dijkstra - print log msgs
+ * 			NOTE: need to add forwarding table as global variable
  * 			1. next_hop == -1
  * 			2. dest != next_hop
  * 			3. dest == next_hop
@@ -29,16 +28,13 @@ int globalSocketUDP;
 //pre-filled for sending to 10.1.1.0 - 255, port 7777
 struct sockaddr_in globalNodeAddrs[256];
 
-// forwarding table stored by each router
-struct LSA local_lsa[256];
-
-char *output_filename;
-
-int init_cost_nodes[256];
+const int num_routers = 256;
+struct RouterEdge network[num_routers][num_routers];
+int init_cost_nodes[num_routers];
 
 // mutexes for threads
 pthread_mutex_t lastHeartbeat_mutex = PTHREAD_MUTEX_INITIALIZER;
-pthread_mutex_t local_lsa_mutex = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t network_mutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t init_costs_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 int main(int argc, char** argv)
@@ -53,9 +49,8 @@ int main(int argc, char** argv)
 	//initialization: get this process's node ID, record what time it is, 
 	//and set up our sockaddr_in's for sending to the other nodes.
 	globalMyID = atoi(argv[1]);
-	int i;
 	pthread_mutex_lock(&lastHeartbeat_mutex);
-	for(i=0;i<256;i++) {
+	for(int i=0;i<256;i++) {
 		// initialize globalLastHeartbeat to 0
 		// gettimeofday(&globalLastHeartbeat[i], 0);
 		struct timeval zero_tv;
@@ -73,17 +68,17 @@ int main(int argc, char** argv)
 	
 	// read and parse initial costs file. default to cost 1 if no entry for a node. file may be empty.
 	output_filename = argv[3];
-	// initialize local_lsa
-	pthread_mutex_lock(&local_lsa_mutex);
+	// initialize network
+	pthread_mutex_lock(&network_mutex);
 	pthread_mutex_lock(&init_costs_mutex);
 	for (int i = 0; i < 256; i++) {
-		memcpy(local_lsa[i].msg_type, "hello\0", 6);
-		local_lsa[i].id = i;
-		local_lsa[i].cost = -1;
-		local_lsa[i].initial_cost = 1;
-		local_lsa[i].next_hop = -1;
-		local_lsa[i].seq_num = 0;
-		init_cost_nodes[i] = -1;
+		for (int j = 0; j < 256; j++) {
+			network[i][j] = NULL;
+			network[i][j].connected = false;
+			network[i][j].init_cost = 1;
+			network[i][j].seq_num = 0;
+			init_cost_nodes[i] = -1;
+		}
 	}
 	// assign costs based on inputted cost_file
 	char *lineptr = NULL; ssize_t n = 0;
@@ -92,7 +87,8 @@ int main(int argc, char** argv)
 	while (getline(&lineptr, &n, costs_file) != -1) {
 		int node, cost;
 		sscanf(lineptr, "%d %d", &node, &cost);
-		local_lsa[node].initial_cost = cost;
+		network[globalMyID][node].init_cost = cost;
+		network[node][globalMyID].init_cost = cost;
 		init_cost_nodes[index] = node;
 		index++;
 		free(lineptr); n = 0;
@@ -100,7 +96,7 @@ int main(int argc, char** argv)
 	free(lineptr); n = 0;
 	fclose(costs_file);
 	pthread_mutex_unlock(&init_costs_mutex);
-	pthread_mutex_unlock(&local_lsa_mutex);
+	pthread_mutex_unlock(&network_mutex);
 	
 	//socket() and bind() our socket. We will do all sendto()ing and recvfrom()ing on this one.
 	if((globalSocketUDP=socket(AF_INET, SOCK_DGRAM, 0)) < 0)
