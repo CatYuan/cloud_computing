@@ -28,6 +28,7 @@ int globalSocketUDP;
 //pre-filled for sending to 10.1.1.0 - 255, port 7777
 struct sockaddr_in globalNodeAddrs[256];
 
+char *output_filename;
 const int num_routers = 256;
 struct RouterEdge network[num_routers][num_routers];
 int init_cost_nodes[num_routers];
@@ -73,7 +74,6 @@ int main(int argc, char** argv)
 	pthread_mutex_lock(&init_costs_mutex);
 	for (int i = 0; i < 256; i++) {
 		for (int j = 0; j < 256; j++) {
-			network[i][j] = NULL;
 			network[i][j].connected = false;
 			network[i][j].init_cost = 1;
 			network[i][j].seq_num = 0;
