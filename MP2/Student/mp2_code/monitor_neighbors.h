@@ -10,6 +10,7 @@
 #include <netdb.h>
 #include <pthread.h>
 #include <stdbool.h>
+#include <limits.h>
 
 typedef struct RouterEdge {
   bool connected;
@@ -34,6 +35,7 @@ extern int globalSocketUDP;
 //pre-filled for sending to 10.1.1.0 - 255, port 7777
 extern struct sockaddr_in globalNodeAddrs[256];
 
+extern char *output_filename;
 extern const int num_routers = 256;
 extern struct RouterEdge network[num_routers][num_routers];
 extern int init_cost_nodes[num_routers];
@@ -44,14 +46,14 @@ extern pthread_mutex_t network_mutex = PTHREAD_MUTEX_INITIALIZER;
 extern pthread_mutex_t init_costs_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 // list of added functions
-void convertHton(LSA* lsa);
-void convertNtoh(LSA* lsa);
+void convertHton(InitCostLsa* lsa);
+void convertNtoh(InitCostLsa* lsa);
 void* monitorNeighbors(void* unusedParam);
 void broadcastInitCosts(void* unusedParam);
 bool isNeighbor(int router_id);
 void hackyBroadcast(const char* buf, int length);
 int minDistRouter(int dist[], bool visited[]);
-int[] disjkstra();
+int* Disjkstra();
 void* announceToNeighbors(void* unusedParam);
 void listenForNeighbors();
 
@@ -110,16 +112,16 @@ void broadcastInitCosts(void* unusedParam) {
 				InitCostLsa lsa;
 				lsa.source = globalMyID;
 				lsa.dest = vertex;
-				lsa.cost = network[globalMyID][vertex].init_cost;
+				lsa.init_cost = network[globalMyID][vertex].init_cost;
 				lsa.seq_num = ++network[globalMyID][vertex].seq_num;
 				network[vertex][globalMyID].seq_num++;
-				convertHton(lsa);
+				convertHton(&lsa);
 				// add message type and copy lsa into buffer to send
 				char *msg_type = "hello";
 				int buf_length = sizeof(InitCostLsa) + strlen(msg_type);
 				void *buf = (void*) malloc(buf_length);
-				memcpy((buf, msg_type, strlen(msg_type));
-				memcpy((char*)buf+strlen(msg_type), lsa, sizeof(InitCostLsa));
+				memcpy(buf, msg_type, strlen(msg_type));
+				memcpy((char*)buf+strlen(msg_type), &lsa, sizeof(InitCostLsa));
 				// send lsa to neighbor
 				sendto(globalSocketUDP, buf, buf_length, 0,
 				  (struct sockaddr*)&globalNodeAddrs[dest_node], sizeof(globalNodeAddrs[dest_node]));
@@ -153,7 +155,7 @@ int minDistRouter(int dist[], bool visited[]) {
   return min_index;
 }
 
-int[] disjkstra() {
+int* Disjkstra() {
   int parent[num_routers];
   int dist[num_routers];
   bool visited[num_routers];
@@ -167,8 +169,8 @@ int[] disjkstra() {
   dist[globalMyID] = 0;
 
   // finding shortest path
-  for (int i = 0; i < num_routers, i++) {
-    int u = minDistRouter(dist);
+  for (int i = 0; i < num_routers; i++) {
+    int u = minDistRouter(dist, visited);
     visited[u] = true;
     for (int v = 0; v < num_routers; v++) {
       if (network[u][v].connected && !visited[v] && (dist[u] + network[u][v].init_cost) < dist[v]) {
