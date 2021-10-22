@@ -8,7 +8,7 @@
 /**
  * NOTE: Remember to convert to htonl when sending and ntohl when reading
  * TODO: 
- * 		implement what happens when connection dropped
+ * 		look into placement of network mutex - consider not using isNeighbor (?)
  * 		implement cost message
  */
 

@@ -88,8 +88,33 @@ void* monitorNeighbors(void* unusedParam) {
 			gettimeofday(&currTime, 0);
 			if ((globalLastHeartbeat[i].tv_sec != 0) &&
 				(currTime.tv_sec - globalLastHeartbeat[i].tv_sec > timeout)) {
-				// TODO: logic for when connection is dropped
-				// set connected to false in network to indicate no connection
+				// connection is dropped
+				pthread_mutex_lock(&network_mutex);
+				network[globalMyID][i].connected = false;
+				network[i][globalMyID].connected = false;
+				pthread_mutex_unlock(&network_mutex);
+				// broadcast to neighbors
+				for (int neighbor = 0; neighbor < num_routers; neighbor++) {
+					if (neighbor == globalMyID || !isNeighbor(neighbor)) { continue; }
+					// create LSA to be sent
+					int vertex = i;
+					InitCostLsa lsa;
+					lsa.source = globalMyID;
+					lsa.dest = vertex;
+					lsa.init_cost = -1;
+					lsa.seq_num = ++network[globalMyID][vertex].seq_num;
+					network[vertex][globalMyID].seq_num++;
+					convertHton(&lsa);
+					// add message type and copy lsa into buffer to send
+					char *msg_type = "hello";
+					int buf_length = sizeof(InitCostLsa) + strlen(msg_type);
+					void *buf = (void*) malloc(buf_length);
+					memcpy(buf, msg_type, strlen(msg_type));
+					memcpy((char*)buf+strlen(msg_type), &lsa, sizeof(InitCostLsa));
+					// send lsa to neighbor
+					sendto(globalSocketUDP, buf, buf_length, 0,
+					(struct sockaddr*)&globalNodeAddrs[neighbor], sizeof(globalNodeAddrs[neighbor]));
+				}
 			}
 		}
 		pthread_mutex_unlock(&lastHeartbeat_mutex);			
@@ -99,7 +124,6 @@ void* monitorNeighbors(void* unusedParam) {
 
 // TODO: may have memory leaks from sending ocal_lsa[lsa_index]
 void broadcastInitCosts(void* unusedParam) {
-	pthread_mutex_lock(&network_mutex);
 	pthread_mutex_lock(&init_costs_mutex);
 	// broadcst only to neighbors
 	for (int dest_node = 0; dest_node < num_routers; dest_node++) {
@@ -130,7 +154,6 @@ void broadcastInitCosts(void* unusedParam) {
 		}
 	}
 	pthread_mutex_unlock(&init_costs_mutex);
-	pthread_mutex_unlock(&network_mutex);
 }
 
 bool isNeighbor(int router_id) {
@@ -294,10 +317,17 @@ void listenForNeighbors() {
 				// update network
 				network[lsa->source][lsa->dest].seq_num = lsa->seq_num;
 				network[lsa->dest][lsa->source].seq_num = lsa->seq_num;
-				network[lsa->source][lsa->dest].init_cost = lsa->init_cost;
-				network[lsa->dest][lsa->source].init_cost = lsa->init_cost;
-				network[lsa->source][lsa->dest].connected = true;
-				network[lsa->dest][lsa->source].connected = true;
+				if (lsa->init_cost != -1) {
+					network[lsa->source][lsa->dest].init_cost = lsa->init_cost;
+					network[lsa->dest][lsa->source].init_cost = lsa->init_cost;
+				}
+				if (lsa->init_cost == -1) {
+					network[lsa->source][lsa->dest].connected = false;
+					network[lsa->dest][lsa->source].connected = false;
+				} else {
+					network[lsa->source][lsa->dest].connected = true;
+					network[lsa->dest][lsa->source].connected = true;
+				}
 				// send lsa to all neighbors
 				convertHton(lsa);
 				for (int dest_node = 0; dest_node < num_routers; dest_node++) {
