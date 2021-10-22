@@ -8,12 +8,7 @@
 /**
  * NOTE: Remember to convert to htonl when sending and ntohl when reading
  * TODO: 
- * 		implement send message - should run dijkstra - print log msgs
- * 			NOTE: need to add forwarding table as global variable
- * 			1. next_hop == -1
- * 			2. dest != next_hop
- * 			3. dest == next_hop
- * 			4. dest == globalMyId
+ * 		consider tie breaking in computing shortest path
  * 		implement what happens when connection dropped
  * 		implement cost message
  */
@@ -29,6 +24,7 @@ int globalSocketUDP;
 struct sockaddr_in globalNodeAddrs[256];
 
 char *output_filename;
+FILE *output_file = NULL;
 const int num_routers = 256;
 struct RouterEdge network[num_routers][num_routers];
 int init_cost_nodes[num_routers];
@@ -69,6 +65,7 @@ int main(int argc, char** argv)
 	
 	// read and parse initial costs file. default to cost 1 if no entry for a node. file may be empty.
 	output_filename = argv[3];
+	output_file = fopen(output_filename, "w");
 	// initialize network
 	pthread_mutex_lock(&network_mutex);
 	pthread_mutex_lock(&init_costs_mutex);

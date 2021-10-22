@@ -36,6 +36,7 @@ extern int globalSocketUDP;
 extern struct sockaddr_in globalNodeAddrs[256];
 
 extern char *output_filename;
+extern FILE* output_file;
 extern const int num_routers = 256;
 extern struct RouterEdge network[num_routers][num_routers];
 extern int init_cost_nodes[num_routers];
@@ -53,7 +54,7 @@ void broadcastInitCosts(void* unusedParam);
 bool isNeighbor(int router_id);
 void hackyBroadcast(const char* buf, int length);
 int minDistRouter(int dist[], bool visited[]);
-int* Disjkstra();
+int* runDisjkstra();
 void* announceToNeighbors(void* unusedParam);
 void listenForNeighbors();
 
@@ -155,7 +156,7 @@ int minDistRouter(int dist[], bool visited[]) {
   return min_index;
 }
 
-int* Disjkstra() {
+int* runDisjkstra() {
   int parent[num_routers];
   int dist[num_routers];
   bool visited[num_routers];
@@ -169,6 +170,7 @@ int* Disjkstra() {
   dist[globalMyID] = 0;
 
   // finding shortest path
+  pthread_mutex_lock(&network_mutex);
   for (int i = 0; i < num_routers; i++) {
     int u = minDistRouter(dist, visited);
     visited[u] = true;
@@ -179,6 +181,7 @@ int* Disjkstra() {
       }
     }
   }
+  pthread_mutex_unlock(&network_mutex);
   return parent;
 }
 
@@ -226,9 +229,11 @@ void listenForNeighbors() {
 					strchr(strchr(strchr(fromAddr,'.')+1,'.')+1,'.')+1);
 
 			// this node can consider heardFrom to be directly connected to it; do any such logic now - mark heardFrom as a neighbor
+			pthread_mutex_lock(&network_mutex);
 			network[globalMyID][heardFrom].connected = true;
 			network[heardFrom][globalMyID].connected = true;
-			
+			pthread_mutex_unlock(&network_mutex);
+
 			//record that we heard from heardFrom just now.
 			pthread_mutex_lock(&lastHeartbeat_mutex);
 			gettimeofday(&globalLastHeartbeat[heardFrom], 0);
@@ -237,8 +242,42 @@ void listenForNeighbors() {
 		
 		// format: 'send'<4 ASCII bytes>, destID<net order 2 byte signed>, <some ASCII message>
 		if(!strncmp(recvBuf, "send", 4)) {
-			//TODO send the requested message to the requested destination node
-			// ...
+			// parse info from recvBuf
+			unsigned short destID;
+			memcpy(&destID, recvBuf+4, 2);
+			destID = ntohs(destID);
+			int msgLength = bytesRecvd - 4 - 2;
+			char msg[100];
+			memset(msg, '\0', 100);
+			memcpy(msg, recvBuf+4+2, msgLength);
+			// finding next router in shortest path
+			int parent[num_routers] = runDisjkstra();
+			int nextHOP = destID;
+			while(parent[nextHOP] != globalMyID && parent[nextHOP] != -1) {
+				nextHOP = parent[nextHOP];
+			}
+			// appropriately forward / log messages
+			char logLine[300];
+			memset(logLine, '\0', 300);
+			if (destID == globalMyID) { // reached dest. router
+				sprintf(logLine, "receive packet message %s\n", msg); 
+			} else if (nextHOP == -1) { // unreachable router
+				sprintf(logLine, "unreachable dest %d\n", destID); 
+			} else { // forward following shortest path
+				sendto(globalSocketUDP, recvBuf, bytesRecvd, 0, (struct sockaddr*)&globalNodeAddrs[nextHOP], sizeof(globalNodeAddrs[nextHOP]));
+				if (strncmp(fromAddr, "10.0.0.10", 9) == 0) {
+					// print send log
+					sprintf(logLine, "sending packet dest %d nexthop %d message %s\n", destID, nextHOP, msg); 
+
+				} else {
+					// print forward log
+					sprintf(logLine, "forward packet dest %d nexthop %d message %s\n", destID, nextHOP, msg); 
+				}
+			}
+			if (output_file != NULL) {
+				fwrite(logLine, 1, strlen(logLine), output_file);
+				fflush(output_file);
+			}
 		}
 		// format: 'cost'<4 ASCII bytes>, destID<net order 2 byte signed> newCost<net order 4 byte signed>
 		else if(!strncmp(recvBuf, "cost", 4)) {
@@ -251,6 +290,7 @@ void listenForNeighbors() {
 			InitCostLsa* lsa = ((void*)recvBuf + 5);
 			convertNtoh(lsa);
 			if ( lsa->seq_num > network[lsa->source][lsa->dest].seq_num ) {
+				pthread_mutex_lock(&network_mutex);
 				// update network
 				network[lsa->source][lsa->dest].seq_num = lsa->seq_num;
 				network[lsa->dest][lsa->source].seq_num = lsa->seq_num;
@@ -266,6 +306,7 @@ void listenForNeighbors() {
 						sendto(globalSocketUDP, recvBuf, bytesRecvd, 0, (struct sockaddr*)&globalNodeAddrs[dest_node], sizeof(globalNodeAddrs[dest_node]));
 					}
 				}
+				pthread_mutex_unlock(&network_mutex);
 			}
 		}
 	}
