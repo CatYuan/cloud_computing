@@ -8,7 +8,6 @@
 /**
  * NOTE: Remember to convert to htonl when sending and ntohl when reading
  * TODO: 
- * 		consider tie breaking in computing shortest path
  * 		implement what happens when connection dropped
  * 		implement cost message
  */
