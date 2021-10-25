@@ -74,7 +74,9 @@ int main(int argc, char** argv)
 	pthread_t announcerThread;
 	pthread_create(&announcerThread, 0, announceToNeighbors, (void*)0);
 	
-	
+	// flood network
+	pthread_t distributeThread;
+	pthread_create(&distributeThread, 0, distributeToNeighbors, (void*)0);
 	
 	
 	//good luck, have fun!
