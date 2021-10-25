@@ -42,9 +42,9 @@ extern struct RouterEdge network[256][256];
 extern int init_cost_nodes[256];
 
 // mutexes for threads
-extern pthread_mutex_t lastHeartbeat_mutex = PTHREAD_MUTEX_INITIALIZER;
-extern pthread_mutex_t network_mutex = PTHREAD_MUTEX_INITIALIZER;
-extern pthread_mutex_t init_costs_mutex = PTHREAD_MUTEX_INITIALIZER;
+// extern pthread_mutex_t lastHeartbeat_mutex = PTHREAD_MUTEX_INITIALIZER;
+// extern pthread_mutex_t network_mutex = PTHREAD_MUTEX_INITIALIZER;
+// extern pthread_mutex_t init_costs_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 // list of added functions
 void convertHton(InitCostLsa* lsa);
@@ -78,7 +78,7 @@ void* monitorNeighbors(void* unusedParam) {
 	sleepFor.tv_nsec = 1000 * 1000 * 1000; //1000 ms
 	time_t timeout = 1; // 1 sec
 	while(1) {
-		pthread_mutex_lock(&lastHeartbeat_mutex);
+		// pthread_mutex_lock(&lastHeartbeat_mutex);
 		for (int i = 0; i < num_routers; i++) {
 			if (i == globalMyID) {
 				continue;
@@ -89,10 +89,10 @@ void* monitorNeighbors(void* unusedParam) {
 			if ((globalLastHeartbeat[i].tv_sec != 0) &&
 				(currTime.tv_sec - globalLastHeartbeat[i].tv_sec > timeout)) {
 				// connection is dropped
-				pthread_mutex_lock(&network_mutex);
+				// pthread_mutex_lock(&network_mutex);
 				network[globalMyID][i].connected = false;
 				network[i][globalMyID].connected = false;
-				pthread_mutex_unlock(&network_mutex);
+				// pthread_mutex_unlock(&network_mutex);
 				// broadcast to neighbors
 				for (int neighbor = 0; neighbor < num_routers; neighbor++) {
 					if (neighbor == globalMyID || !isNeighbor(neighbor)) { continue; }
@@ -117,14 +117,14 @@ void* monitorNeighbors(void* unusedParam) {
 				}
 			}
 		}
-		pthread_mutex_unlock(&lastHeartbeat_mutex);			
+		// pthread_mutex_unlock(&lastHeartbeat_mutex);			
 		nanosleep(&sleepFor, 0);
 	}
 }
 
 // TODO: may have memory leaks from sending ocal_lsa[lsa_index]
 void broadcastInitCosts(void* unusedParam) {
-	pthread_mutex_lock(&init_costs_mutex);
+	// pthread_mutex_lock(&init_costs_mutex);
 	// broadcst only to neighbors
 	for (int dest_node = 0; dest_node < num_routers; dest_node++) {
 		if (dest_node == globalMyID) { continue; }
@@ -153,17 +153,17 @@ void broadcastInitCosts(void* unusedParam) {
 			}
 		}
 	}
-	pthread_mutex_unlock(&init_costs_mutex);
+	// pthread_mutex_unlock(&init_costs_mutex);
 }
 
 bool isNeighbor(int router_id) {
 	time_t timeout = 1;
 	struct timeval currTime;
 	gettimeofday(&currTime, 0);
-	pthread_mutex_lock(&lastHeartbeat_mutex);
+	// pthread_mutex_lock(&lastHeartbeat_mutex);
 	bool output = (globalLastHeartbeat[router_id].tv_sec != 0) && 
 		(currTime.tv_sec - globalLastHeartbeat[router_id].tv_sec < timeout);
-	pthread_mutex_unlock(&lastHeartbeat_mutex);
+	// pthread_mutex_unlock(&lastHeartbeat_mutex);
 	return output;
 }
 
@@ -193,7 +193,7 @@ int* runDisjkstra() {
   dist[globalMyID] = 0;
 
   // finding shortest path
-  pthread_mutex_lock(&network_mutex);
+//   pthread_mutex_lock(&network_mutex);
   for (int i = 0; i < num_routers; i++) {
     int u = minDistRouter(dist, visited);
     visited[u] = true;
@@ -204,7 +204,7 @@ int* runDisjkstra() {
       }
     }
   }
-  pthread_mutex_unlock(&network_mutex);
+//   pthread_mutex_unlock(&network_mutex);
   return parent;
 }
 
@@ -252,15 +252,15 @@ void listenForNeighbors() {
 					strchr(strchr(strchr(fromAddr,'.')+1,'.')+1,'.')+1);
 
 			// this node can consider heardFrom to be directly connected to it; do any such logic now - mark heardFrom as a neighbor
-			pthread_mutex_lock(&network_mutex);
+			// pthread_mutex_lock(&network_mutex);
 			network[globalMyID][heardFrom].connected = true;
 			network[heardFrom][globalMyID].connected = true;
-			pthread_mutex_unlock(&network_mutex);
+			// pthread_mutex_unlock(&network_mutex);
 
 			//record that we heard from heardFrom just now.
-			pthread_mutex_lock(&lastHeartbeat_mutex);
+			// pthread_mutex_lock(&lastHeartbeat_mutex);
 			gettimeofday(&globalLastHeartbeat[heardFrom], 0);
-			pthread_mutex_unlock(&lastHeartbeat_mutex);
+			// pthread_mutex_unlock(&lastHeartbeat_mutex);
 		}
 		
 		// format: 'send'<4 ASCII bytes>, destID<net order 2 byte signed>, <some ASCII message>
@@ -313,7 +313,7 @@ void listenForNeighbors() {
 			InitCostLsa* lsa = ((void*)recvBuf + 5);
 			convertNtoh(lsa);
 			if ( lsa->seq_num > network[lsa->source][lsa->dest].seq_num ) {
-				pthread_mutex_lock(&network_mutex);
+				// pthread_mutex_lock(&network_mutex);
 				// update network
 				network[lsa->source][lsa->dest].seq_num = lsa->seq_num;
 				network[lsa->dest][lsa->source].seq_num = lsa->seq_num;
@@ -336,7 +336,7 @@ void listenForNeighbors() {
 						sendto(globalSocketUDP, recvBuf, bytesRecvd, 0, (struct sockaddr*)&globalNodeAddrs[dest_node], sizeof(globalNodeAddrs[dest_node]));
 					}
 				}
-				pthread_mutex_unlock(&network_mutex);
+				// pthread_mutex_unlock(&network_mutex);
 			}
 		}
 	}
