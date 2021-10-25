@@ -24,14 +24,8 @@ struct sockaddr_in globalNodeAddrs[256];
 
 char *output_filename;
 FILE *output_file = NULL;
-const int num_routers = 256;
-struct RouterEdge network[num_routers][num_routers];
-int init_cost_nodes[num_routers];
-
-// mutexes for threads
-pthread_mutex_t lastHeartbeat_mutex = PTHREAD_MUTEX_INITIALIZER;
-pthread_mutex_t network_mutex = PTHREAD_MUTEX_INITIALIZER;
-pthread_mutex_t init_costs_mutex = PTHREAD_MUTEX_INITIALIZER;
+struct RouterEdge network[256][256];
+int init_cost_nodes[256];
 
 int main(int argc, char** argv)
 {

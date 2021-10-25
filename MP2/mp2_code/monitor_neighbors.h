@@ -38,8 +38,8 @@ extern struct sockaddr_in globalNodeAddrs[256];
 extern char *output_filename;
 extern FILE* output_file;
 extern const int num_routers = 256;
-extern struct RouterEdge network[num_routers][num_routers];
-extern int init_cost_nodes[num_routers];
+extern struct RouterEdge network[256][256];
+extern int init_cost_nodes[256];
 
 // mutexes for threads
 extern pthread_mutex_t lastHeartbeat_mutex = PTHREAD_MUTEX_INITIALIZER;
@@ -65,7 +65,7 @@ void convertHton(InitCostLsa* lsa) {
 	lsa->seq_num = htonl(lsa->seq_num);
 }
 
-void convertHton(InitCostLsa* lsa) {
+void convertNtoh(InitCostLsa* lsa) {
 	lsa->source = ntohl(lsa->source);
 	lsa->dest = ntohl(lsa->dest);
 	lsa->init_cost = ntohl(lsa->init_cost);
@@ -274,7 +274,7 @@ void listenForNeighbors() {
 			memset(msg, '\0', 100);
 			memcpy(msg, recvBuf+4+2, msgLength);
 			// finding next router in shortest path
-			int parent[num_routers] = runDisjkstra();
+			int *parent = runDisjkstra();
 			int nextHOP = destID;
 			while(parent[nextHOP] != globalMyID && parent[nextHOP] != -1) {
 				nextHOP = parent[nextHOP];
