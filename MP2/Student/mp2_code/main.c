@@ -24,7 +24,6 @@ char *output_filename;
 int init_cost[256];
 int neighbor[256];
 int network[256][256];
-static int forwarding_table[256];
  
 int main(int argc, char** argv)
 {
@@ -85,7 +84,7 @@ int main(int argc, char** argv)
 	// read and parse initial costs file. default to cost 1 if no entry for a node. file may be empty.
 	output_filename = argv[3];
 	FILE *costs_file = fopen(argv[2], "r");
-	int n = 0, bytes_read = 0; char *lineptr = NULL;
+	size_t n = 0, bytes_read = 0; char *lineptr = NULL;
 	while ((bytes_read = getline(&lineptr, &n, costs_file)) != -1) {
 		// TODO: if lineptr[read - 1] == '\n' then do this
 		lineptr[bytes_read - 1] = '\0'; 
@@ -97,7 +96,7 @@ int main(int argc, char** argv)
 	free(lineptr); lineptr = NULL; n = 0;
 	fclose(costs_file);
 	constructEdgeCosts();
-	neighbors[globalMyID] = -1;
+	neighbor[globalMyID] = -1;
 	
 	//start threads... feel free to add your own, and to remove the provided ones.
 	pthread_t announcerThread;

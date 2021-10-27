@@ -10,6 +10,8 @@
 #include <netdb.h>
 #include <pthread.h>
 #include <stdbool.h>
+#include <limits.h>
+#include <sys/time.h>
 
 typedef struct LSA {
 	int dest;
@@ -32,7 +34,8 @@ extern char *output_filename;
 extern int init_cost[256];
 extern int neighbor[256];
 extern int network[256][256];
-extern int num_routers = 256;
+extern int num_routers;
+static int forwarding_table[256];
 char *edge_string = NULL;
 LSA *list_head = NULL;
 LSA *list_tail = NULL;
@@ -52,8 +55,8 @@ int getMinDistNode(int distances[], bool visited[]) {
 	int min = INT_MAX;
 	int min_index;
 	for (int i = 0; i < num_routers; i++) {
-		if (visited[i] || dist[i] > min) { continue; }
-		min = dist[i];
+		if (visited[i] || distances[i] > min) { continue; }
+		min = distances[i];
 		min_index = i;
 	}
 	return min_index;
@@ -67,7 +70,7 @@ int dijkstra(int start) {
 		distances[i] = INT_MAX;
 		visited[i] = false;
 	}
-	distances[start] = 0
+	distances[start] = 0;
 	// finding shortest path
 	for (int i = 0; i < 255; i++) {
 		int curr_node = getMinDistNode(distances, visited);
@@ -83,14 +86,14 @@ int dijkstra(int start) {
 	int min_index = INT_MIN;
 	for (int i = 0; i < num_routers; i++) {
 		int cost = distances[i] + network[globalMyID][i];
-		if (dist[i] == INT_MAX || i==start) { continue; }
-		if (cost >= min && (cost!=min || i>=index)) { continue; }
+		if (distances[i] == INT_MAX || i==start) { continue; }
+		if (cost >= min && (cost!=min || i>=min_index)) { continue; }
 		if ((i==globalMyID && network[globalMyID][start]==cost) || network[globalMyID][i]) {
 			min = cost;
 			min_index = 1;
 		}
 	}
-	return min_index==globalMyID ? src : min_index;
+	return min_index==globalMyID ? start : min_index;
 }
 
 void monitorNeighborConnections() {
@@ -133,7 +136,7 @@ void* broadcastEdgeCosts(void* unusedParam) {
 		pthread_mutex_unlock(&lsaMutex);
 		// sending LSA
 		if (lsa != NULL) {
-			for (int i = 0; i < num_rotuers; i++) {
+			for (int i = 0; i < 256; i++) {
 				if (i == globalMyID) { continue; }
 				if (lsa->dest!=-1 && i!=lsa->dest) { continue; }
 				sendto(globalSocketUDP, lsa->message, lsa->msg_length, 0, (struct sockaddr*)&globalNodeAddrs[i], sizeof(globalNodeAddrs[i]));
@@ -148,7 +151,7 @@ void* broadcastEdgeCosts(void* unusedParam) {
 
 void constructEdgeCosts() {
 	char buffer[1024];
-	memset(buf, 0, 1024);
+	memset(buffer, 0, 1024);
 	++neighbor[globalMyID];
 	sprintf(buffer, "edge %d %d ", globalMyID, neighbor[globalMyID]);
 	for (int i = 0; i < num_routers; i++) {
@@ -158,7 +161,7 @@ void constructEdgeCosts() {
 			memset(curr_edge, 0, 30);
 			sprintf(curr_edge, "%d-%d,", i, edge_cost);
 			strcat(buffer, curr_edge);
-			if (i+1 = num_routers) {
+			if (i+1 == num_routers) {
 				buffer[strlen(buffer) - 1] = '\0';
 			}
 		}
@@ -311,7 +314,7 @@ void listenForNeighbors() {
 			char message[1024];
 			memset(message, 0, 1024);
 			sscanf(copy_recv, "edge %d %d %s;", &srcid, &destid, message);
-			if (destid > neighbors[srcid] && strlen(message) > 1) {
+			if (destid > neighbor[srcid] && strlen(message) > 1) {
 				int og_edge = network[srcid][globalMyID];
 				bool edge_changed = false;
 				neighbor[srcid] = destid;
@@ -331,7 +334,7 @@ void listenForNeighbors() {
 					edges = (char**) calloc(n+1, sizeof(char*));
 					char *msg_ptr = msg_copy;
 					for (int i = 0; i < n; i++) {
-						edges[i] = calloc(strlen(msg_ptr) + 1);
+						edges[i] = calloc(strlen(msg_ptr) + 1, 1);
 						memcpy(edges[i], msg_ptr, strlen(msg_ptr));
 						msg_ptr += strlen(msg_ptr) + 1;
 					}
@@ -366,7 +369,7 @@ void listenForNeighbors() {
 					forwarding_table[i] = INT_MIN;
 				}
 				// destroy created edges
-				for (int i = 0; i < n, i++) {
+				for (int i = 0; i < n; i++) {
 					free(edges[i]);
 					edges[i] = NULL;
 				}
