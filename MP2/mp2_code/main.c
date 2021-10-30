@@ -2,14 +2,13 @@
 #include <stdlib.h>
 #include <pthread.h>
 #include <stdbool.h>
+#include <sys/time.h>
 
 #include "monitor_neighbors.h"
 
 /**
  * NOTE: Remember to convert to htonl when sending and ntohl when reading
  * TODO: 
- * 		look into placement of network mutex - consider not using isNeighbor (?)
- * 		implement cost message
  */
 
 int globalMyID = 0;
@@ -26,6 +25,7 @@ char *output_filename;
 FILE *output_file = NULL;
 struct RouterEdge network[256][256];
 int init_cost_nodes[256];
+int parent[256];
 
 int main(int argc, char** argv)
 {
@@ -39,13 +39,8 @@ int main(int argc, char** argv)
 	//initialization: get this process's node ID, record what time it is, 
 	//and set up our sockaddr_in's for sending to the other nodes.
 	globalMyID = atoi(argv[1]);
-	// pthread_mutex_lock(&lastHeartbeat_mutex);
 	for(int i=0;i<256;i++) {
-		// initialize globalLastHeartbeat to 0
-		// gettimeofday(&globalLastHeartbeat[i], 0);
-		struct timeval zero_tv;
-		zero_tv.tv_sec = 0; zero_tv.tv_usec = 0;
-		globalLastHeartbeat[i] = zero_tv;
+		gettimeofday(&globalLastHeartbeat[i], 0);
 
 		char tempaddr[100];
 		sprintf(tempaddr, "10.1.1.%d", i);
@@ -54,14 +49,11 @@ int main(int argc, char** argv)
 		globalNodeAddrs[i].sin_port = htons(7777);
 		inet_pton(AF_INET, tempaddr, &globalNodeAddrs[i].sin_addr);
 	}
-	// pthread_mutex_unlock(&lastHeartbeat_mutex);
 	
 	// read and parse initial costs file. default to cost 1 if no entry for a node. file may be empty.
 	output_filename = argv[3];
 	output_file = fopen(output_filename, "w");
 	// initialize network
-	// pthread_mutex_lock(&network_mutex);
-	// pthread_mutex_lock(&init_costs_mutex);
 	for (int i = 0; i < 256; i++) {
 		for (int j = 0; j < 256; j++) {
 			network[i][j].connected = false;
@@ -85,8 +77,6 @@ int main(int argc, char** argv)
 	}
 	free(lineptr); n = 0;
 	fclose(costs_file);
-	// pthread_mutex_unlock(&init_costs_mutex);
-	// pthread_mutex_unlock(&network_mutex);
 	
 	//socket() and bind() our socket. We will do all sendto()ing and recvfrom()ing on this one.
 	if((globalSocketUDP=socket(AF_INET, SOCK_DGRAM, 0)) < 0)

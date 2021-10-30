@@ -11,6 +11,7 @@
 #include <pthread.h>
 #include <stdbool.h>
 #include <limits.h>
+#include <sys/time.h>
 
 typedef struct RouterEdge {
   bool connected;
@@ -36,10 +37,11 @@ extern int globalSocketUDP;
 extern struct sockaddr_in globalNodeAddrs[256];
 
 extern char *output_filename;
-extern FILE* output_file;
-extern const int num_routers = 256;
+extern FILE *output_file;
+const int num_routers = 256;
 extern struct RouterEdge network[256][256];
 extern int init_cost_nodes[256];
+extern int parent[256];
 
 // mutexes for threads
 // extern pthread_mutex_t lastHeartbeat_mutex = PTHREAD_MUTEX_INITIALIZER;
@@ -50,11 +52,11 @@ extern int init_cost_nodes[256];
 void convertHton(InitCostLsa* lsa);
 void convertNtoh(InitCostLsa* lsa);
 void* monitorNeighbors(void* unusedParam);
-void broadcastInitCosts(void* unusedParam);
+void* broadcastInitCosts(void* unusedParam);
 bool isNeighbor(int router_id);
 void hackyBroadcast(const char* buf, int length);
 int minDistRouter(int dist[], bool visited[]);
-int* runDisjkstra();
+void runDijkstra();
 void* announceToNeighbors(void* unusedParam);
 void listenForNeighbors();
 
@@ -76,7 +78,7 @@ void* monitorNeighbors(void* unusedParam) {
 	struct timespec sleepFor;
 	sleepFor.tv_sec = 0;
 	sleepFor.tv_nsec = 1000 * 1000 * 1000; //1000 ms
-	time_t timeout = 1; // 1 sec
+	time_t timeout = 4; // 4 sec
 	while(1) {
 		// pthread_mutex_lock(&lastHeartbeat_mutex);
 		for (int i = 0; i < num_routers; i++) {
@@ -123,35 +125,41 @@ void* monitorNeighbors(void* unusedParam) {
 }
 
 // TODO: may have memory leaks from sending ocal_lsa[lsa_index]
-void broadcastInitCosts(void* unusedParam) {
+void* broadcastInitCosts(void* unusedParam) {
 	// pthread_mutex_lock(&init_costs_mutex);
 	// broadcst only to neighbors
-	for (int dest_node = 0; dest_node < num_routers; dest_node++) {
-		if (dest_node == globalMyID) { continue; }
-		if (isNeighbor(dest_node)) {
-			// broadcast init_cost only if the init_node is a neighbor
-			for (int j = 0; init_cost_nodes[j] != -1 && j < num_routers; j++) {
-				if (!isNeighbor(init_cost_nodes[j])) { continue; }
-				// create LSA to be sent
-				int vertex = init_cost_nodes[j];
-				InitCostLsa lsa;
-				lsa.source = globalMyID;
-				lsa.dest = vertex;
-				lsa.init_cost = network[globalMyID][vertex].init_cost;
-				lsa.seq_num = ++network[globalMyID][vertex].seq_num;
-				network[vertex][globalMyID].seq_num++;
-				convertHton(&lsa);
-				// add message type and copy lsa into buffer to send
-				char *msg_type = "hello";
-				int buf_length = sizeof(InitCostLsa) + strlen(msg_type);
-				void *buf = (void*) malloc(buf_length);
-				memcpy(buf, msg_type, strlen(msg_type));
-				memcpy((char*)buf+strlen(msg_type), &lsa, sizeof(InitCostLsa));
-				// send lsa to neighbor
-				sendto(globalSocketUDP, buf, buf_length, 0,
-				  (struct sockaddr*)&globalNodeAddrs[dest_node], sizeof(globalNodeAddrs[dest_node]));
+	struct timespec sleepFor;
+	sleepFor.tv_sec = 0;
+	sleepFor.tv_nsec = 1200 * 1000 * 1000; //1200 ms
+	while(1) {
+		for (int dest_node = 0; dest_node < num_routers; dest_node++) {
+			if (dest_node == globalMyID) { continue; }
+			if (network[globalMyID][dest_node].connected) {
+				// broadcast init_cost only if the init_node is a neighbor
+				for (int j = 0; init_cost_nodes[j] != -1 && j < num_routers; j++) {
+					if (!isNeighbor(init_cost_nodes[j])) { continue; }
+					// create LSA to be sent
+					int vertex = init_cost_nodes[j];
+					InitCostLsa lsa;
+					lsa.source = globalMyID;
+					lsa.dest = vertex;
+					lsa.init_cost = network[globalMyID][vertex].init_cost;
+					lsa.seq_num = ++network[globalMyID][vertex].seq_num;
+					network[vertex][globalMyID].seq_num++;
+					convertHton(&lsa);
+					// add message type and copy lsa into buffer to send
+					char *msg_type = "hello";
+					int buf_length = sizeof(InitCostLsa) + strlen(msg_type);
+					void *buf = (void*) malloc(buf_length);
+					memcpy(buf, msg_type, strlen(msg_type));
+					memcpy((char*)buf+strlen(msg_type), &lsa, sizeof(InitCostLsa));
+					// send lsa to neighbor
+					sendto(globalSocketUDP, buf, buf_length, 0,
+					(struct sockaddr*)&globalNodeAddrs[dest_node], sizeof(globalNodeAddrs[dest_node]));
+				}
 			}
 		}
+		nanosleep(&sleepFor, 0);
 	}
 	// pthread_mutex_unlock(&init_costs_mutex);
 }
@@ -179,8 +187,7 @@ int minDistRouter(int dist[], bool visited[]) {
   return min_index;
 }
 
-int* runDisjkstra() {
-  int parent[num_routers];
+void runDijkstra() {
   int dist[num_routers];
   bool visited[num_routers];
 
@@ -193,19 +200,16 @@ int* runDisjkstra() {
   dist[globalMyID] = 0;
 
   // finding shortest path
-//   pthread_mutex_lock(&network_mutex);
   for (int i = 0; i < num_routers; i++) {
     int u = minDistRouter(dist, visited);
     visited[u] = true;
     for (int v = 0; v < num_routers; v++) {
-      if (network[u][v].connected && !visited[v] && (dist[u] + network[u][v].init_cost) < dist[v]) {
+      if (network[u][v].connected && (dist[u] + network[u][v].init_cost) < dist[v]) {
         dist[v] = dist[u] + network[u][v].init_cost;
         parent[v] = u;
       }
     }
   }
-//   pthread_mutex_unlock(&network_mutex);
-  return parent;
 }
 
 //Yes, this is terrible. It's also terrible that, in Linux, a socket
@@ -252,10 +256,9 @@ void listenForNeighbors() {
 					strchr(strchr(strchr(fromAddr,'.')+1,'.')+1,'.')+1);
 
 			// this node can consider heardFrom to be directly connected to it; do any such logic now - mark heardFrom as a neighbor
-			// pthread_mutex_lock(&network_mutex);
 			network[globalMyID][heardFrom].connected = true;
 			network[heardFrom][globalMyID].connected = true;
-			// pthread_mutex_unlock(&network_mutex);
+
 
 			//record that we heard from heardFrom just now.
 			// pthread_mutex_lock(&lastHeartbeat_mutex);
@@ -274,8 +277,8 @@ void listenForNeighbors() {
 			memset(msg, '\0', 100);
 			memcpy(msg, recvBuf+4+2, msgLength);
 			// finding next router in shortest path
-			int *parent = runDisjkstra();
 			int nextHOP = destID;
+			runDijkstra();
 			while(parent[nextHOP] != globalMyID && parent[nextHOP] != -1) {
 				nextHOP = parent[nextHOP];
 			}
