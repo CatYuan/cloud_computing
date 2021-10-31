@@ -25,7 +25,9 @@ char *output_filename;
 FILE *output_file = NULL;
 struct RouterEdge network[256][256];
 int init_cost_nodes[256];
+int num_init_cost_nodes;
 int parent[256];
+bool init_costs_updated;
 
 int main(int argc, char** argv)
 {
@@ -54,6 +56,7 @@ int main(int argc, char** argv)
 	output_filename = argv[3];
 	output_file = fopen(output_filename, "w");
 	// initialize network
+	num_init_cost_nodes = 0;
 	for (int i = 0; i < 256; i++) {
 		for (int j = 0; j < 256; j++) {
 			network[i][j].connected = false;
@@ -65,18 +68,18 @@ int main(int argc, char** argv)
 	// assign costs based on inputted cost_file
 	char *lineptr = NULL; ssize_t n = 0;
 	FILE *costs_file = fopen(argv[2], "r");
-	int index = 0;
 	while (getline(&lineptr, &n, costs_file) != -1) {
 		int node, cost;
 		sscanf(lineptr, "%d %d", &node, &cost);
 		network[globalMyID][node].init_cost = cost;
 		network[node][globalMyID].init_cost = cost;
-		init_cost_nodes[index] = node;
-		index++;
+		init_cost_nodes[num_init_cost_nodes] = node;
+		num_init_cost_nodes++;
 		free(lineptr); n = 0;
 	}
 	free(lineptr); n = 0;
 	fclose(costs_file);
+	init_costs_updated = true;
 	
 	//socket() and bind() our socket. We will do all sendto()ing and recvfrom()ing on this one.
 	if((globalSocketUDP=socket(AF_INET, SOCK_DGRAM, 0)) < 0)

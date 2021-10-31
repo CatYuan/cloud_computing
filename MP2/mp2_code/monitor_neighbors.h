@@ -41,7 +41,9 @@ extern FILE *output_file;
 const int num_routers = 256;
 extern struct RouterEdge network[256][256];
 extern int init_cost_nodes[256];
+extern int num_init_cost_nodes;
 extern int parent[256];
+extern bool init_costs_updated;
 
 // mutexes for threads
 // extern pthread_mutex_t lastHeartbeat_mutex = PTHREAD_MUTEX_INITIALIZER;
@@ -88,10 +90,11 @@ void* monitorNeighbors(void* unusedParam) {
 			// check if connection is dropped
 			struct timeval currTime;
 			gettimeofday(&currTime, 0);
-			if ((globalLastHeartbeat[i].tv_sec != 0) &&
+			if (network[globalMyID][i].connected &&
 				(currTime.tv_sec - globalLastHeartbeat[i].tv_sec > timeout)) {
 				// connection is dropped
 				// pthread_mutex_lock(&network_mutex);
+				// printf("broadcast that a connection was dropped\n");
 				network[globalMyID][i].connected = false;
 				network[i][globalMyID].connected = false;
 				// pthread_mutex_unlock(&network_mutex);
@@ -132,12 +135,13 @@ void* broadcastInitCosts(void* unusedParam) {
 	sleepFor.tv_sec = 0;
 	sleepFor.tv_nsec = 1200 * 1000 * 1000; //1200 ms
 	while(1) {
+		if (!init_costs_updated) { continue; }
 		for (int dest_node = 0; dest_node < num_routers; dest_node++) {
 			if (dest_node == globalMyID) { continue; }
 			if (network[globalMyID][dest_node].connected) {
 				// broadcast init_cost only if the init_node is a neighbor
 				for (int j = 0; init_cost_nodes[j] != -1 && j < num_routers; j++) {
-					if (!isNeighbor(init_cost_nodes[j])) { continue; }
+					if (!network[globalMyID][init_cost_nodes[j]].connected) { continue; }
 					// create LSA to be sent
 					int vertex = init_cost_nodes[j];
 					InitCostLsa lsa;
@@ -159,6 +163,7 @@ void* broadcastInitCosts(void* unusedParam) {
 				}
 			}
 		}
+		init_costs_updated = false;
 		nanosleep(&sleepFor, 0);
 	}
 	// pthread_mutex_unlock(&init_costs_mutex);
@@ -256,8 +261,12 @@ void listenForNeighbors() {
 					strchr(strchr(strchr(fromAddr,'.')+1,'.')+1,'.')+1);
 
 			// this node can consider heardFrom to be directly connected to it; do any such logic now - mark heardFrom as a neighbor
-			network[globalMyID][heardFrom].connected = true;
-			network[heardFrom][globalMyID].connected = true;
+			if (network[globalMyID][heardFrom].connected == false) {
+				init_cost_nodes[num_init_cost_nodes++] = heardFrom;
+				init_costs_updated = true;
+				network[globalMyID][heardFrom].connected = true;
+				network[heardFrom][globalMyID].connected = true;
+			}
 
 
 			//record that we heard from heardFrom just now.
@@ -325,6 +334,7 @@ void listenForNeighbors() {
 					network[lsa->dest][lsa->source].init_cost = lsa->init_cost;
 				}
 				if (lsa->init_cost == -1) {
+					// printf("received message that a connection was dropped\n");
 					network[lsa->source][lsa->dest].connected = false;
 					network[lsa->dest][lsa->source].connected = false;
 				} else {
