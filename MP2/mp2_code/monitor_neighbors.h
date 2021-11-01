@@ -44,6 +44,7 @@ extern int init_cost_nodes[256];
 extern int num_init_cost_nodes;
 extern int parent[256];
 extern bool init_costs_updated;
+extern bool og_pop;
 
 // list of added functions
 void convertHton(InitCostLsa* lsa);
@@ -160,7 +161,10 @@ int minDistRouter(int dist[], bool visited[]) {
   int min = INT_MAX;
   int min_index = 0;
   for (int i = 0; i < num_routers; i++) {
-    if (!visited[i] && dist[i] <= min) {
+    if (!og_pop && !visited[i] && dist[i] <= min) {
+      min = dist[i];
+      min_index = i;
+    } else if (og_pop && !visited[i] && dist[i] < min) {
       min = dist[i];
       min_index = i;
     }
@@ -183,7 +187,7 @@ void runDijkstra() {
   // finding shortest path
   for (int i = 0; i < num_routers; i++) {
     int u = minDistRouter(dist, visited);
-	if (dist[u] == INT_MAX) { continue; }
+	if (!og_pop && dist[u] == INT_MAX) { continue; }
     visited[u] = true;
     for (int v = 0; v < num_routers; v++) {
       if (network[u][v].connected && (dist[u] + network[u][v].init_cost) < dist[v]) {

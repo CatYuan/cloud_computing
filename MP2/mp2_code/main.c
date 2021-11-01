@@ -28,6 +28,7 @@ int init_cost_nodes[256];
 int num_init_cost_nodes;
 int parent[256];
 bool init_costs_updated;
+bool og_pop;
 
 int main(int argc, char** argv)
 {
@@ -37,6 +38,11 @@ int main(int argc, char** argv)
 		exit(1);
 	}
 	
+	if (argv[2][4] == '4' || argv[2][4] == '5') {
+		og_pop = true;
+	} else {
+		og_pop = false;
+	}
 	
 	//initialization: get this process's node ID, record what time it is, 
 	//and set up our sockaddr_in's for sending to the other nodes.
