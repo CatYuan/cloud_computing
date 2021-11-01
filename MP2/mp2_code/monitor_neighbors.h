@@ -100,7 +100,8 @@ void* monitorNeighbors(void* unusedParam) {
 				// pthread_mutex_unlock(&network_mutex);
 				// broadcast to neighbors
 				for (int neighbor = 0; neighbor < num_routers; neighbor++) {
-					if (neighbor == globalMyID || !isNeighbor(neighbor)) { continue; }
+					if (neighbor == globalMyID || !network[neighbor][globalMyID].connected) { continue; }
+					// printf("sending message that connection was dropped\n");
 					// create LSA to be sent
 					int vertex = i;
 					InitCostLsa lsa;
