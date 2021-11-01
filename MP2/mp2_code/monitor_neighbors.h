@@ -182,13 +182,20 @@ bool isNeighbor(int router_id) {
 }
 
 int minDistRouter(int dist[], bool visited[]) {
+  bool init_loop = true;
   int min = INT_MAX;
   int min_index = 0;
   for (int i = 0; i < num_routers; i++) {
     if (!visited[i] && dist[i] < min) {
       min = dist[i];
       min_index = i;
+	  init_loop = false;
     }
+	if (!visited[i] && init_loop && dist[i] == INT_MAX) {
+	  init_loop = false;
+	  min = dist[i];
+	  min_index = i;
+	}
   }
   return min_index;
 }
@@ -209,6 +216,7 @@ void runDijkstra() {
   for (int i = 0; i < num_routers; i++) {
     int u = minDistRouter(dist, visited);
     visited[u] = true;
+	if (dist[u] == INT_MAX) { continue; }
     for (int v = 0; v < num_routers; v++) {
       if (network[u][v].connected && (dist[u] + network[u][v].init_cost) < dist[v]) {
         dist[v] = dist[u] + network[u][v].init_cost;
@@ -297,7 +305,7 @@ void listenForNeighbors() {
 			memset(logLine, '\0', 300);
 			if (destID == globalMyID) { // reached dest. router
 				sprintf(logLine, "receive packet message %s\n", msg); 
-			} else if (nextHOP == -1) { // unreachable router
+			} else if (parent[destID] == -1) { // unreachable router
 				sprintf(logLine, "unreachable dest %d\n", destID); 
 			} else { // forward following shortest path
 				sendto(globalSocketUDP, recvBuf, bytesRecvd, 0, (struct sockaddr*)&globalNodeAddrs[nextHOP], sizeof(globalNodeAddrs[nextHOP]));
