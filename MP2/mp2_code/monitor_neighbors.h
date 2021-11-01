@@ -44,18 +44,13 @@ extern int init_cost_nodes[256];
 extern int num_init_cost_nodes;
 extern int parent[256];
 extern bool init_costs_updated;
-
-// mutexes for threads
-// extern pthread_mutex_t lastHeartbeat_mutex = PTHREAD_MUTEX_INITIALIZER;
-// extern pthread_mutex_t network_mutex = PTHREAD_MUTEX_INITIALIZER;
-// extern pthread_mutex_t init_costs_mutex = PTHREAD_MUTEX_INITIALIZER;
+extern bool og_pop;
 
 // list of added functions
 void convertHton(InitCostLsa* lsa);
 void convertNtoh(InitCostLsa* lsa);
 void* monitorNeighbors(void* unusedParam);
 void* broadcastInitCosts(void* unusedParam);
-bool isNeighbor(int router_id);
 void hackyBroadcast(const char* buf, int length);
 int minDistRouter(int dist[], bool visited[]);
 void runDijkstra();
@@ -79,10 +74,9 @@ void convertNtoh(InitCostLsa* lsa) {
 void* monitorNeighbors(void* unusedParam) {
 	struct timespec sleepFor;
 	sleepFor.tv_sec = 0;
-	sleepFor.tv_nsec = 1000 * 1000 * 1000; //1000 ms
-	time_t timeout = 4; // 4 sec
+	sleepFor.tv_nsec = 500 * 1000 * 1000; //500 ms
+	time_t timeout = 1; // 1 sec
 	while(1) {
-		// pthread_mutex_lock(&lastHeartbeat_mutex);
 		for (int i = 0; i < num_routers; i++) {
 			if (i == globalMyID) {
 				continue;
@@ -93,15 +87,11 @@ void* monitorNeighbors(void* unusedParam) {
 			if (network[globalMyID][i].connected &&
 				(currTime.tv_sec - globalLastHeartbeat[i].tv_sec > timeout)) {
 				// connection is dropped
-				// pthread_mutex_lock(&network_mutex);
-				// printf("broadcast that a connection was dropped\n");
 				network[globalMyID][i].connected = false;
 				network[i][globalMyID].connected = false;
-				// pthread_mutex_unlock(&network_mutex);
 				// broadcast to neighbors
 				for (int neighbor = 0; neighbor < num_routers; neighbor++) {
 					if (neighbor == globalMyID || !network[neighbor][globalMyID].connected) { continue; }
-					// printf("sending message that connection was dropped\n");
 					// create LSA to be sent
 					int vertex = i;
 					InitCostLsa lsa;
@@ -122,19 +112,17 @@ void* monitorNeighbors(void* unusedParam) {
 					(struct sockaddr*)&globalNodeAddrs[neighbor], sizeof(globalNodeAddrs[neighbor]));
 				}
 			}
-		}
-		// pthread_mutex_unlock(&lastHeartbeat_mutex);			
+		}		
 		nanosleep(&sleepFor, 0);
 	}
 }
 
 // TODO: may have memory leaks from sending ocal_lsa[lsa_index]
 void* broadcastInitCosts(void* unusedParam) {
-	// pthread_mutex_lock(&init_costs_mutex);
 	// broadcst only to neighbors
 	struct timespec sleepFor;
 	sleepFor.tv_sec = 0;
-	sleepFor.tv_nsec = 1200 * 1000 * 1000; //1200 ms
+	sleepFor.tv_nsec = 500 * 1000 * 1000; //500 ms
 	while(1) {
 		if (!init_costs_updated) { continue; }
 		for (int dest_node = 0; dest_node < num_routers; dest_node++) {
@@ -167,25 +155,16 @@ void* broadcastInitCosts(void* unusedParam) {
 		init_costs_updated = false;
 		nanosleep(&sleepFor, 0);
 	}
-	// pthread_mutex_unlock(&init_costs_mutex);
-}
-
-bool isNeighbor(int router_id) {
-	time_t timeout = 1;
-	struct timeval currTime;
-	gettimeofday(&currTime, 0);
-	// pthread_mutex_lock(&lastHeartbeat_mutex);
-	bool output = (globalLastHeartbeat[router_id].tv_sec != 0) && 
-		(currTime.tv_sec - globalLastHeartbeat[router_id].tv_sec < timeout);
-	// pthread_mutex_unlock(&lastHeartbeat_mutex);
-	return output;
 }
 
 int minDistRouter(int dist[], bool visited[]) {
   int min = INT_MAX;
   int min_index = 0;
   for (int i = 0; i < num_routers; i++) {
-    if (!visited[i] && dist[i] < min) {
+    if (!og_pop && !visited[i] && dist[i] <= min) {
+      min = dist[i];
+      min_index = i;
+    } else if (og_pop && !visited[i] && dist[i] < min) {
       min = dist[i];
       min_index = i;
     }
@@ -208,6 +187,7 @@ void runDijkstra() {
   // finding shortest path
   for (int i = 0; i < num_routers; i++) {
     int u = minDistRouter(dist, visited);
+	if (!og_pop && dist[u] == INT_MAX) { continue; }
     visited[u] = true;
     for (int v = 0; v < num_routers; v++) {
       if (network[u][v].connected && (dist[u] + network[u][v].init_cost) < dist[v]) {
@@ -271,9 +251,7 @@ void listenForNeighbors() {
 
 
 			//record that we heard from heardFrom just now.
-			// pthread_mutex_lock(&lastHeartbeat_mutex);
 			gettimeofday(&globalLastHeartbeat[heardFrom], 0);
-			// pthread_mutex_unlock(&lastHeartbeat_mutex);
 		}
 		
 		// format: 'send'<4 ASCII bytes>, destID<net order 2 byte signed>, <some ASCII message>
@@ -297,7 +275,7 @@ void listenForNeighbors() {
 			memset(logLine, '\0', 300);
 			if (destID == globalMyID) { // reached dest. router
 				sprintf(logLine, "receive packet message %s\n", msg); 
-			} else if (nextHOP == -1) { // unreachable router
+			} else if (parent[destID] == -1) { // unreachable router
 				sprintf(logLine, "unreachable dest %d\n", destID); 
 			} else { // forward following shortest path
 				sendto(globalSocketUDP, recvBuf, bytesRecvd, 0, (struct sockaddr*)&globalNodeAddrs[nextHOP], sizeof(globalNodeAddrs[nextHOP]));
@@ -326,7 +304,6 @@ void listenForNeighbors() {
 			InitCostLsa* lsa = ((void*)recvBuf + 5);
 			convertNtoh(lsa);
 			if ( lsa->seq_num > network[lsa->source][lsa->dest].seq_num ) {
-				// pthread_mutex_lock(&network_mutex);
 				// update network
 				network[lsa->source][lsa->dest].seq_num = lsa->seq_num;
 				network[lsa->dest][lsa->source].seq_num = lsa->seq_num;
@@ -335,7 +312,6 @@ void listenForNeighbors() {
 					network[lsa->dest][lsa->source].init_cost = lsa->init_cost;
 				}
 				if (lsa->init_cost == -1) {
-					// printf("received message that a connection was dropped\n");
 					network[lsa->source][lsa->dest].connected = false;
 					network[lsa->dest][lsa->source].connected = false;
 				} else {
@@ -350,7 +326,6 @@ void listenForNeighbors() {
 						sendto(globalSocketUDP, recvBuf, bytesRecvd, 0, (struct sockaddr*)&globalNodeAddrs[dest_node], sizeof(globalNodeAddrs[dest_node]));
 					}
 				}
-				// pthread_mutex_unlock(&network_mutex);
 			}
 		}
 	}
